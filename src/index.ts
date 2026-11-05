@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
-import { setTimeout } from "node:timers/promises";
+import timers from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { AstroIntegration } from "astro";
 
@@ -96,6 +96,7 @@ export default function buffer({
             [
               "diff",
               "--name-only",
+              "--relative",
               "-z",
               "--diff-filter=A",
               "--find-renames",
@@ -202,19 +203,32 @@ export default function buffer({
           let live = false;
           const deadline = Date.now() + 300_000;
           while (Date.now() < deadline) {
-            const response = await fetch(article.url, {
-              method: "HEAD",
-              signal: AbortSignal.timeout(10_000),
-            });
-            if (response.ok && response.url === article.url) {
-              live = true;
-              break;
+            let response: Response | undefined;
+            try {
+              response = await fetch(article.url, {
+                method: "HEAD",
+                signal: AbortSignal.timeout(10_000),
+              });
+            } catch (error) {
+              if (
+                !(error instanceof TypeError) &&
+                !(error instanceof Error && error.name === "TimeoutError")
+              ) {
+                throw error;
+              }
+              logger.warn(`Cannot reach ${article.url}: ${error.message}. Retrying.`);
             }
-            if (response.status !== 404 && response.status !== 503) {
-              throw new Error(`Cannot verify ${article.url}: HTTP ${response.status}.`);
+            if (response) {
+              if (response.ok && response.url === article.url) {
+                live = true;
+                break;
+              }
+              if (![404, 502, 503, 504].includes(response.status)) {
+                throw new Error(`Cannot verify ${article.url}: HTTP ${response.status}.`);
+              }
             }
             logger.info(`Waiting for ${article.url} to be deployed...`);
-            await setTimeout(10_000);
+            await timers.setTimeout(10_000);
           }
           if (!live) {
             throw new Error(`${article.url} is not live yet. Rerun after deployment succeeds.`);
@@ -268,7 +282,10 @@ export default function buffer({
         if (failures.length) {
           throw new AggregateError(
             failures,
-            "Some Buffer posts need attention; reruns skip existing posts.",
+            [
+              "Some Buffer posts need attention; reruns skip existing posts.",
+              ...failures.map((error) => error.message),
+            ].join("\n"),
           );
         }
       },
