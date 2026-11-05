@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import timers from "node:timers/promises";
 import test from "node:test";
 import buffer from "../src/index.ts";
 
@@ -19,7 +20,14 @@ const channels = [
 
 async function setup(
   t,
-  { enabled = true, existing = [], failChannel, nextPage = [], availableChannels = channels } = {},
+  {
+    enabled = true,
+    existing = [],
+    failChannel,
+    nextPage = [],
+    availableChannels = channels,
+    nested = false,
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -38,12 +46,13 @@ async function setup(
     else process.env[key] = value;
   }
   const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const project = nested ? join(root, "site") : root;
   git("init", "--quiet");
   git("config", "user.name", "Test");
   git("config", "user.email", "test@example.com");
-  await mkdir(join(root, "src/content/blog"), { recursive: true });
-  await writeFile(join(root, "src/content/blog/old.md"), "Existing article\n");
-  await writeFile(join(root, "src/content/blog/rename.md"), "Article to rename\n");
+  await mkdir(join(project, "src/content/blog"), { recursive: true });
+  await writeFile(join(project, "src/content/blog/old.md"), "Existing article\n");
+  await writeFile(join(project, "src/content/blog/rename.md"), "Article to rename\n");
   git("add", ".");
   git("commit", "--quiet", "-m", "Existing articles");
   const previousBase = process.env.BUFFER_BASE_REF;
@@ -52,13 +61,16 @@ async function setup(
     else process.env.BUFFER_BASE_REF = previousBase;
   });
   process.env.BUFFER_BASE_REF = git("rev-parse", "HEAD");
-  await writeFile(join(root, "src/content/blog/new.md"), "New article\n");
-  await writeFile(join(root, "src/content/blog/old.md"), "Edited existing article\n");
-  await rename(join(root, "src/content/blog/rename.md"), join(root, "src/content/blog/renamed.md"));
+  await writeFile(join(project, "src/content/blog/new.md"), "New article\n");
+  await writeFile(join(project, "src/content/blog/old.md"), "Edited existing article\n");
+  await rename(
+    join(project, "src/content/blog/rename.md"),
+    join(project, "src/content/blog/renamed.md"),
+  );
   git("add", ".");
   git("commit", "--quiet", "-m", "Publish new article");
 
-  const dir = pathToFileURL(join(root, "dist/"));
+  const dir = pathToFileURL(join(project, "dist/"));
   await mkdir(dir);
   const manifest = new URL("buffer-posts.json", dir);
   await writeFile(
@@ -118,7 +130,7 @@ async function setup(
   });
   const routes = [];
   await integration.hooks["astro:config:setup"]({ injectRoute: (route) => routes.push(route) });
-  await integration.hooks["astro:config:done"]({ config: { root: pathToFileURL(root + "/") } });
+  await integration.hooks["astro:config:done"]({ config: { root: pathToFileURL(project + "/") } });
   const run = () =>
     integration.hooks["astro:build:done"]({
       dir,
@@ -188,6 +200,7 @@ test("reports experimental mutation failures with variant validation details", a
   await assert.rejects(run(), (error) => {
     assert.ok(error instanceof AggregateError);
     assert.match(error.errors[0].message, /New article.*Invalid channel variant.*Media required/);
+    assert.match(error.message, /New article.*Invalid channel variant.*Media required/);
     return true;
   });
   assert.equal(created.length, 2);
@@ -199,6 +212,7 @@ test("existing failed posts require attention instead of being duplicated", asyn
   });
   await assert.rejects(run(), (error) => {
     assert.match(error.errors[0].message, /Review Buffer post failed/);
+    assert.match(error.message, /Review Buffer post failed/);
     return true;
   });
   assert.deepEqual(
@@ -265,5 +279,51 @@ test("an unreachable production article fails before any write to Buffer", async
     return fetchBuffer(url, options);
   });
   await assert.rejects(run(), /Cannot verify.*HTTP 500/);
+  assert.deepEqual(created, []);
+});
+
+test("nested Astro projects match Git paths relative to their project root", async (t) => {
+  const { run, created } = await setup(t, { nested: true });
+  await run();
+  assert.equal(created.length, 2);
+  assert.ok(created.every(({ text }) => text.includes(article.url)));
+});
+
+test("deployment readiness retries connection failures, timeouts, and gateway errors", async (t) => {
+  const { run, created, logs } = await setup(t);
+  t.mock.timers.enable({ apis: ["Date"] });
+  t.mock.method(timers, "setTimeout", async (delay) => t.mock.timers.tick(delay));
+  const fetchBuffer = globalThis.fetch;
+  const outcomes = [
+    new TypeError("fetch failed"),
+    new DOMException("Request timed out", "TimeoutError"),
+    { ok: false, status: 502 },
+    { ok: false, status: 504 },
+  ];
+  let attempts = 0;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (url !== article.url) return fetchBuffer(url, options);
+    attempts++;
+    const outcome = outcomes.shift();
+    if (outcome instanceof Error) throw outcome;
+    return outcome ?? { ok: true, url };
+  });
+  await run();
+  assert.equal(attempts, 5);
+  assert.equal(created.length, 2);
+  assert.ok(logs.some((message) => message.includes("fetch failed")));
+  assert.ok(logs.some((message) => message.includes("Request timed out")));
+});
+
+test("deployment readiness stops retrying after its deadline without publishing", async (t) => {
+  const { run, created } = await setup(t);
+  t.mock.timers.enable({ apis: ["Date"] });
+  t.mock.method(timers, "setTimeout", async (delay) => t.mock.timers.tick(delay));
+  const fetchBuffer = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (url !== article.url) return fetchBuffer(url, options);
+    throw new TypeError("fetch failed");
+  });
+  await assert.rejects(run(), /is not live yet/);
   assert.deepEqual(created, []);
 });
