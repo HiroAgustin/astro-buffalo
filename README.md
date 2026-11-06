@@ -6,7 +6,8 @@ each channel. No SDK, external database, or browser JavaScript.
 
 ## Setup
 
-Requires Astro 7.4.5+ (7.x) and Node 26.13.0+ (26.x). Older versions have not been verified.
+Supports Astro 6.x and 7.x with Node 22.12.0+ (22.x), 24.x, or 26.13.0+ (26.x).
+Your Astro version may require a newer Node release; follow its engine requirements too.
 
 Once the package is published to npm, install it in your Astro project:
 
@@ -130,13 +131,27 @@ runs with a concurrency group using `queue: max` so newer pushes do not replace 
 
 ## Development
 
-Use Node 26 for the native TypeScript test runner:
+Use Node 26.13.0+ for the development toolchain. Tests exercise the compiled JavaScript that
+ships to users, not TypeScript source:
 
 ```sh
 npm ci
 npm test
 npm run build
 npm run format:check
+```
+
+The compatibility workflow builds and packs the package using Node 26, then runs the tests and
+real Astro builds on Node 22, 24, and 26. It covers the minimum Astro 6.0/7.0 releases as well as
+newer versions. The isolated fixture installs the npm tarball and checks ordinary builds,
+dry-run previews, and publishing with all Buffer requests mocked. No credentials are required
+and no real social posts are created.
+
+To run the fixture locally after building:
+
+```sh
+npm pack --ignore-scripts
+ASTRO_VERSION=6.0.0 npm run test:compatibility -- ./astro-buffer-0.1.0.tgz
 ```
 
 References: [Astro Integration API](https://docs.astro.build/en/reference/integrations-reference/)
