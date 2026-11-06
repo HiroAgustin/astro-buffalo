@@ -3,6 +3,8 @@
 Share newly published Astro articles to Buffer using its experimental `createContentItem` API.
 One request per article, with a variant for each channel. No SDK, database, or browser JavaScript.
 
+An independent integration; not affiliated with or endorsed by Buffer.
+
 ## Setup
 
 Requires Astro 7.x and Node 24 or newer.
