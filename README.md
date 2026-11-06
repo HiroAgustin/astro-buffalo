@@ -232,6 +232,30 @@ For a CI preview, add `BUFFER_DRY_RUN: "true"` to the final step's environment. 
 out of pull-request and preview deployment workflows. For retries, use manual dispatch with
 the original base SHA; do not replace it with the current commit.
 
+## Releases
+
+Publishing runs automatically when a version tag is pushed. Tests and formatting must pass,
+and the tag must match the version in `package.json`.
+
+Configure npm trusted publishing once for `astro-buffer`:
+
+- Provider: GitHub Actions
+- Organization or user: `HiroAgustin`
+- Repository: `astro-buffer`
+- Workflow filename: `publish.yml`
+- Environment: leave blank
+- Allow direct publishing with `npm publish`
+
+No npm token or GitHub secret is needed. From a clean, up-to-date `main` branch, release a fix:
+
+```sh
+npm version patch
+git push origin main --follow-tags
+```
+
+Use `npm version minor` for a feature release instead. The workflow publishes to npm with
+provenance; it does not announce anything on social networks.
+
 ## Development
 
 Use Node 24 or newer. Tests exercise the compiled JavaScript that
