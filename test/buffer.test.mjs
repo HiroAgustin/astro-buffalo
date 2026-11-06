@@ -157,6 +157,39 @@ test("ordinary builds do not inject routes or contact Buffer", async (t) => {
   assert.deepEqual(requests, []);
 });
 
+test("invalid manifests fail before network requests and are removed from output", async (t) => {
+  for (const [name, value, message] of [
+    ["not an array", {}, /must be an array/],
+    ["null article", [null], /article 1 must be an object/],
+    ["missing path", [{ title: "Test", url: article.url }], /filePath/],
+    ["absolute path", [{ ...article, filePath: "/src/new.md" }], /filePath/],
+    ["parent path", [{ ...article, filePath: "../new.md" }], /filePath/],
+    ["windows path", [{ ...article, filePath: "C:\\posts\\new.md" }], /filePath/],
+    ["empty title", [{ ...article, title: " " }], /title/],
+    ["relative URL", [{ ...article, url: "/new/" }], /absolute HTTP/],
+    ["invalid URL", [{ ...article, url: "not a URL" }], /absolute HTTP/],
+    ["non-web URL", [{ ...article, url: "ftp://example.com/new/" }], /HTTP/],
+    ["URL credentials", [{ ...article, url: "https://user:pass@example.com/" }], /credentials/],
+    ["URL fragment", [{ ...article, url: `${article.url}#section` }], /fragment/],
+  ]) {
+    await t.test(name, async (t) => {
+      const { run, manifest, requests } = await setup(t);
+      await writeFile(manifest, JSON.stringify(value));
+      await assert.rejects(run(), message);
+      assert.deepEqual(requests, []);
+      await assert.rejects(readFile(manifest), { code: "ENOENT" });
+    });
+  }
+});
+
+test("malformed JSON is removed from build output before parsing fails", async (t) => {
+  const { run, manifest, requests } = await setup(t);
+  await writeFile(manifest, "{invalid");
+  await assert.rejects(run(), SyntaxError);
+  assert.deepEqual(requests, []);
+  await assert.rejects(readFile(manifest), { code: "ENOENT" });
+});
+
 test("non-build commands stay inert even with publishing enabled", async (t) => {
   for (const command of ["dev", "preview", "sync"]) {
     await t.test(command, async (t) => {
