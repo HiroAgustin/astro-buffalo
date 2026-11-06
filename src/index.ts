@@ -66,7 +66,7 @@ interface PostHistory {
   };
 }
 
-function isDraft(source: string): boolean {
+function isDraft(source: string) {
   const lines = (source.startsWith("\uFEFF") ? source.slice(1) : source).split("\n");
   if (lines.length < 2 || lines[0].trimEnd() !== "---") return false;
   const end = lines.findIndex((line, index) => index > 0 && line.trimEnd() === "---");
@@ -75,7 +75,7 @@ function isDraft(source: string): boolean {
   return typeof data === "object" && data !== null && "draft" in data && data.draft === true;
 }
 
-async function waitForDeployment(url: string, logger: AstroIntegrationLogger): Promise<void> {
+async function waitForDeployment(url: string, logger: AstroIntegrationLogger) {
   const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
     let response: Response | undefined;
@@ -105,7 +105,7 @@ async function waitForDeployment(url: string, logger: AstroIntegrationLogger): P
   throw new Error(`${url} is not live yet. Rerun after deployment succeeds.`);
 }
 
-async function request<T>(token: string, query: string, variables: object): Promise<T> {
+async function request<T>(token: string, query: string, variables: object) {
   const response = await fetch("https://api.buffer.com", {
     method: "POST",
     headers: {
@@ -271,7 +271,7 @@ export default function buffer({
         const existing: BufferPost[] = [];
         let after: string | null = null;
         do {
-          const { posts: page }: PostHistory = await request<PostHistory>(
+          const { posts: page }: PostHistory = await request(
             token,
             `query Posts($input: PostsInput!, $after: String) {
               posts(input: $input, first: 100, after: $after) {
