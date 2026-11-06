@@ -8,14 +8,11 @@ each channel. No SDK, external database, or browser JavaScript.
 
 Requires Astro 7.x and Node 24 or newer. Node 24 LTS is the tested baseline.
 
-Once the package is published to npm, install it in your Astro project:
+Install it in your Astro project:
 
 ```sh
 npm install astro-buffer
 ```
-
-Until then, run `npm ci` in this repository and install it in your Astro project with
-`npm install /path/to/astro-buffer`. The package's prepare script builds the distribution.
 
 Configure Astro with an endpoint that lists your articles, and the directory containing their
 source files:
