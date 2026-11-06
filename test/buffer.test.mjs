@@ -31,6 +31,9 @@ async function setup(
     nested = false,
     integrationOptions = {},
     articleData = {},
+    previousSource,
+    previousPath = article.filePath,
+    source = "New article\n",
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
@@ -58,6 +61,9 @@ async function setup(
   await mkdir(join(project, "src/content/blog"), { recursive: true });
   await writeFile(join(project, "src/content/blog/old.md"), "Existing article\n");
   await writeFile(join(project, "src/content/blog/rename.md"), "Article to rename\n");
+  if (previousSource !== undefined) {
+    await writeFile(join(project, previousPath), previousSource);
+  }
   git("add", ".");
   git("commit", "--quiet", "-m", "Existing articles");
   const previousBase = process.env.BUFFER_BASE_REF;
@@ -66,7 +72,10 @@ async function setup(
     else process.env.BUFFER_BASE_REF = previousBase;
   });
   process.env.BUFFER_BASE_REF = git("rev-parse", "HEAD");
-  await writeFile(join(project, "src/content/blog/new.md"), "New article\n");
+  if (previousSource !== undefined && previousPath !== article.filePath) {
+    await rename(join(project, previousPath), join(project, article.filePath));
+  }
+  await writeFile(join(project, article.filePath), source);
   await writeFile(join(project, "src/content/blog/old.md"), "Edited existing article\n");
   await rename(
     join(project, "src/content/blog/rename.md"),
@@ -220,6 +229,119 @@ test("shares only added articles in one batch, not edits, renames, or archive en
   assert.equal(mutations[0].variables.input.organizationId, "test-org");
   assert.equal(mutations[0].variables.input.title, article.title);
   await assert.rejects(readFile(manifest), { code: "ENOENT" });
+});
+
+test("shares committed drafts when their YAML draft flag is cleared or removed", async (t) => {
+  for (const [name, previousSource, source] of [
+    ["cleared", "---\ndraft: true\n---\nArticle\n", "---\ndraft: false\n---\nArticle\n"],
+    ["removed", "---\ndraft: true\n---\nArticle\n", "---\ntitle: Published\n---\nArticle\n"],
+    ["frontmatter removed", "---\ndraft: true\n---\nArticle\n", "Published article\n"],
+    [
+      "YAML syntax and CRLF",
+      '\uFEFF---\r\n"draft": true # Review first\r\n---\r\nArticle\r\n',
+      "---\r\ndraft: false\r\n---\r\nArticle\r\n",
+    ],
+  ]) {
+    await t.test(name, async (t) => {
+      const { run, created } = await setup(t, { previousSource, source });
+      await run();
+      assert.equal(created.length, channels.length);
+      assert.ok(created.every(({ text }) => text.endsWith(article.url)));
+    });
+  }
+});
+
+test("does not share drafts or mistake body text and quoted strings for draft flags", async (t) => {
+  for (const [name, options] of [
+    ["new draft", { source: "---\ndraft: true\n---\nArticle\n" }],
+    [
+      "edited draft",
+      {
+        previousSource: "---\ndraft: true\n---\nArticle\n",
+        source: "---\ndraft: true\n---\nEdited article\n",
+      },
+    ],
+    ["body text", { previousSource: "Example:\n---\ndraft: true\n---\nArticle\n" }],
+    ["quoted boolean", { previousSource: '---\ndraft: "true"\n---\nArticle\n' }],
+  ]) {
+    await t.test(name, async (t) => {
+      const { run, requests, created } = await setup(t, options);
+      await run();
+      assert.deepEqual(requests, []);
+      assert.deepEqual(created, []);
+    });
+  }
+});
+
+test("draft publication detection supports nested Astro projects", async (t) => {
+  const { run, created } = await setup(t, {
+    nested: true,
+    previousSource: "---\ndraft: true\n---\nArticle\n",
+  });
+  await run();
+  assert.equal(created.length, channels.length);
+});
+
+test("shares renamed drafts when published, including paths containing spaces", async (t) => {
+  const content = "Article paragraph\n".repeat(30);
+  const { run, created, git } = await setup(t, {
+    previousPath: "src/content/blog/draft with spaces.md",
+    previousSource: `---\ndraft: true\n---\n${content}`,
+    source: `---\ndraft: false\n---\n${content}`,
+  });
+  assert.match(
+    git("diff", "--name-status", "--find-renames", process.env.BUFFER_BASE_REF, "HEAD"),
+    /R\d+\tsrc\/content\/blog\/draft with spaces\.md\tsrc\/content\/blog\/new\.md/,
+  );
+  await run();
+  assert.equal(created.length, channels.length);
+});
+
+test("draft transitions only share articles included in the public manifest", async (t) => {
+  const { run, manifest, requests } = await setup(t, {
+    previousSource: "---\ndraft: true\n---\nArticle\n",
+  });
+  await writeFile(manifest, "[]");
+  await run();
+  assert.deepEqual(requests, []);
+});
+
+test("rerunning a draft publication never duplicates existing shares", async (t) => {
+  const { run, created } = await setup(t, {
+    previousSource: "---\ndraft: true\n---\nArticle\n",
+    existing: channels.map(({ id }) => ({
+      id: `post-${id}`,
+      channelId: id,
+      text: article.url,
+      status: "sent",
+    })),
+  });
+  await run();
+  assert.deepEqual(created, []);
+});
+
+test("dry runs preview draft publications without creating announcements", async (t) => {
+  const { run, requests, logs, created } = await setup(t, {
+    dryRun: true,
+    previousSource: "---\ndraft: true\n---\nArticle\n",
+  });
+  await run();
+  assert.ok(logs.some((message) => message.startsWith("Dry run: ")));
+  assert.ok(requests.every(({ query }) => !query.includes("mutation")));
+  assert.deepEqual(created, []);
+});
+
+test("malformed historical frontmatter fails before contacting Buffer", async (t) => {
+  for (const previousSource of [
+    "---\ndraft: [invalid\n---\nArticle\n",
+    "---\ndraft: true\nArticle without closing delimiter\n",
+  ]) {
+    await t.test(previousSource, async (t) => {
+      const { run, requests } = await setup(t, { previousSource });
+      await assert.rejects(run());
+      assert.deepEqual(requests, []);
+    });
+  }
 });
 
 test("dry runs preview missing channels without mutations or deployment checks", async (t) => {

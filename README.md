@@ -81,8 +81,28 @@ const posts = await getCollection(
 );
 ```
 
-Git detection only considers added files, not later edits. Removing a draft flag or reaching a
-future publication date will not automatically announce a previously committed file.
+### Publishing a committed draft
+
+Markdown and MDX articles can start with YAML frontmatter containing `draft: true`. Commit the
+draft normally, keeping it out of your public routes and the article manifest. When it is ready,
+set `draft: false` or remove the field and include the article in the manifest:
+
+```yaml
+---
+title: My article
+draft: false
+---
+```
+
+The integration compares the source against `BUFFER_BASE_REF`. Newly added public articles and
+previously committed drafts becoming public are shared. Ordinary edits and renames of published
+articles are ignored; renaming a draft while publishing it is supported. A source that still has
+`draft: true` is never shared, even if it is accidentally included in the manifest.
+
+Draft detection uses a top-level YAML boolean `draft: true`, not a quoted string, custom field,
+or schema default. The adapter remains responsible for filtering future dates and any custom
+publication rules. Reaching a future publication date without a source change does not trigger
+an announcement. No drafts are created or synchronized in Buffer.
 
 ### Optional settings
 
@@ -123,7 +143,7 @@ Normal builds and development never publish. Set these environment variables for
 | `BUFFER_DRY_RUN=true` | Preview announcements without creating posts (also requires `BUFFER_PUBLISH=true`). |
 | `BUFFER_API_KEY` | Buffer personal API key; keep this secret. |
 | `BUFFER_ORGANIZATION_ID` | Organization containing the channels to share to. |
-| `BUFFER_BASE_REF` | Full commit SHA before the newly added articles. |
+| `BUFFER_BASE_REF` | Full commit SHA before the articles were added or changed from draft to published. |
 
 Create a personal API key in Buffer's **Settings → API**, selecting only `account:read`,
 `posts:read`, and `posts:write`. The integration reads channels, checks post history for duplicates,
@@ -143,8 +163,8 @@ BUFFER_API_KEY=your_api_key
 BUFFER_ORGANIZATION_ID=your_organization_id
 ```
 
-From the commit adding the articles, run this POSIX shell command (macOS/Linux). Replace `HEAD^`
-with the revision immediately before your new articles if they span multiple commits:
+From the commit publishing the articles, run this POSIX shell command (macOS/Linux). Replace `HEAD^`
+with the revision immediately before publication if the changes span multiple commits:
 
 ```sh
 BUFFER_PUBLISH=true BUFFER_DRY_RUN=true BUFFER_BASE_REF="$(git rev-parse HEAD^)" \
@@ -155,8 +175,9 @@ This prints the planned text, missing target channels, and mode without creating
 It still reads Buffer channels and history. Nothing is announced by an ordinary `npm run build`.
 
 Run `astro build` from the exact publishing commit in a Git checkout with the base revision
-available. Only added files between that revision and `HEAD` are shared; edits, detected renames,
-and archive entries are ignored. Directory paths are relative to the Astro project root.
+available. Added articles and draft-to-published transitions between that revision and `HEAD` are
+shared; ordinary edits, published-article renames, and archive entries are ignored. Directory paths
+are relative to the Astro project root.
 
 Each article's production URL must return successfully without a redirect. The integration waits
 about five minutes for deployment before failing. Posts use `title + URL` unless custom text is

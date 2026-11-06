@@ -4,6 +4,7 @@ import timers from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { AstroIntegration, AstroIntegrationLogger } from "astro";
 import { z } from "astro/zod";
+import { parse } from "yaml";
 
 const articlesSchema = z.array(
   z.object(
@@ -63,6 +64,14 @@ interface PostHistory {
     edges: { node: BufferPost }[] | null;
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
   };
+}
+
+function isDraft(source: string): boolean {
+  if (!/^\uFEFF?---[ \t]*\r?\n/.test(source)) return false;
+  const frontmatter = source.match(/^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*\r?$/m);
+  if (!frontmatter) throw new Error("Missing closing YAML frontmatter delimiter.");
+  const data: unknown = parse(frontmatter[1]);
+  return typeof data === "object" && data !== null && "draft" in data && data.draft === true;
 }
 
 async function waitForDeployment(url: string, logger: AstroIntegrationLogger): Promise<void> {
@@ -183,28 +192,41 @@ export default function buffer({
         if (!base || !/^[a-f0-9]{40}$/i.test(base) || /^0+$/.test(base)) {
           throw new Error("Set BUFFER_BASE_REF to the full commit SHA before the new posts.");
         }
-        const added = new Set(
-          execFileSync(
-            "git",
-            [
-              "diff",
-              "--name-only",
-              "--relative",
-              "-z",
-              "--diff-filter=A",
-              "--find-renames",
-              base,
-              "HEAD",
-              "--",
-              contentDirectory,
-            ],
-            { cwd: fileURLToPath(root), encoding: "utf8" },
-          )
-            .split("\0")
-            .filter(Boolean),
-        );
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: fileURLToPath(root), encoding: "utf8" });
+        const changes = git(
+          "diff",
+          "--name-status",
+          "--relative",
+          "-z",
+          "--diff-filter=AMR",
+          "--find-renames",
+          base,
+          "HEAD",
+          "--",
+          contentDirectory,
+        )
+          .split("\0")
+          .filter(Boolean);
+        const previousPaths = new Map<string, string | undefined>();
+        for (let index = 0; index < changes.length;) {
+          const status = changes[index++];
+          const path = changes[index++];
+          if (status.startsWith("R")) {
+            previousPaths.set(changes[index++], path);
+          } else {
+            previousPaths.set(path, status === "A" ? undefined : path);
+          }
+        }
         const posts = articles
-          .filter((article) => added.has(article.filePath))
+          .filter(({ filePath }) => {
+            if (!previousPaths.has(filePath)) return false;
+            const previousPath = previousPaths.get(filePath);
+            if (previousPath && !isDraft(git("show", `${base}:./${previousPath}`))) {
+              return false;
+            }
+            return !isDraft(git("show", `HEAD:./${filePath}`));
+          })
           .map((article) => ({
             ...article,
             text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
