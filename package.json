@@ -3,6 +3,17 @@
   "version": "0.1.0",
   "description": "Share newly published Astro articles through Buffer.",
   "license": "MIT",
+  "homepage": "https://github.com/HiroAgustin/astro-buffer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HiroAgustin/astro-buffer.git"
+  },
+  "keywords": [
+    "astro-integration",
+    "withastro",
+    "buffer",
+    "social-media"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -20,10 +31,10 @@
     "prepare": "npm run build"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": "^26.13.0"
   },
   "peerDependencies": {
-    "astro": ">=6.0.0"
+    "astro": "^7.4.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

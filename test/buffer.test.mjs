@@ -22,6 +22,7 @@ async function setup(
   t,
   {
     enabled = true,
+    command = "build",
     dryRun = false,
     existing = [],
     failChannel,
@@ -134,7 +135,10 @@ async function setup(
     ...integrationOptions,
   });
   const routes = [];
-  await integration.hooks["astro:config:setup"]({ injectRoute: (route) => routes.push(route) });
+  await integration.hooks["astro:config:setup"]({
+    command,
+    injectRoute: (route) => routes.push(route),
+  });
   await integration.hooks["astro:config:done"]({ config: { root: pathToFileURL(project + "/") } });
   const run = () =>
     integration.hooks["astro:build:done"]({
@@ -151,6 +155,18 @@ test("ordinary builds do not inject routes or contact Buffer", async (t) => {
   await run();
   assert.deepEqual(routes, []);
   assert.deepEqual(requests, []);
+});
+
+test("non-build commands stay inert even with publishing enabled", async (t) => {
+  for (const command of ["dev", "preview", "sync"]) {
+    await t.test(command, async (t) => {
+      const { run, requests, routes, manifest } = await setup(t, { command });
+      await run();
+      assert.deepEqual(routes, []);
+      assert.deepEqual(requests, []);
+      await readFile(manifest);
+    });
+  }
 });
 
 test("shares only added articles in one batch, not edits, renames, or archive entries", async (t) => {
