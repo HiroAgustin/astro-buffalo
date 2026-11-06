@@ -63,6 +63,7 @@ export default function buffer({
 }: BufferOptions): AstroIntegration {
   let root: URL;
   const enabled = process.env.BUFFER_PUBLISH === "true";
+  const dryRun = process.env.BUFFER_DRY_RUN === "true";
 
   return {
     name: "astro-buffer",
@@ -199,6 +200,18 @@ export default function buffer({
             pending.push(channel);
           }
           if (!pending.length) continue;
+
+          if (dryRun) {
+            logger.info(
+              `Dry run: ${JSON.stringify({
+                title: article.title,
+                text: `${article.title}\n\n${article.url}`,
+                channels: pending.map(({ id, name }) => ({ id, name })),
+                mode: "shareNow",
+              })}`,
+            );
+            continue;
+          }
 
           let live = false;
           const deadline = Date.now() + 300_000;

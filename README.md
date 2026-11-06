@@ -56,6 +56,7 @@ Normal builds and development never publish. Set these environment variables for
 | Variable | Purpose |
 | --- | --- |
 | `BUFFER_PUBLISH=true` | Explicitly enable publishing. |
+| `BUFFER_DRY_RUN=true` | Preview announcements without creating posts (also requires `BUFFER_PUBLISH=true`). |
 | `BUFFER_API_KEY` | Buffer personal API key; keep this secret. |
 | `BUFFER_ORGANIZATION_ID` | Organization containing the channels to share to. |
 | `BUFFER_BASE_REF` | Full commit SHA before the newly added articles. |
@@ -77,6 +78,10 @@ URLs per channel before creating anything. Existing failed posts, drafts, or app
 require attention in Buffer, not replacement posts. Keep their URL text and records intact.
 Creation requests are never automatically retried; this is not an exactly-once delivery guarantee.
 Run publishing builds serially to avoid races.
+
+Dry runs still require credentials and a base revision. They read channels and post history,
+report only missing announcements, and skip deployment checks and all Buffer mutations. Existing
+failed posts still require attention and cause the run to fail.
 
 Keep publishing separate from preview/PR builds. A production-only GitHub Actions workflow can
 invoke `BUFFER_PUBLISH=true astro build` after checking out the publishing commit with

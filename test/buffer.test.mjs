@@ -22,6 +22,7 @@ async function setup(
   t,
   {
     enabled = true,
+    dryRun = false,
     existing = [],
     failChannel,
     nextPage = [],
@@ -33,6 +34,7 @@ async function setup(
   t.after(() => rm(root, { recursive: true, force: true }));
   const env = {
     BUFFER_PUBLISH: enabled ? "true" : undefined,
+    BUFFER_DRY_RUN: dryRun ? "true" : undefined,
     BUFFER_API_KEY: "test-token",
     BUFFER_ORGANIZATION_ID: "test-org",
   };
@@ -166,6 +168,36 @@ test("shares only added articles in one batch, not edits, renames, or archive en
   assert.equal(mutations[0].variables.input.organizationId, "test-org");
   assert.equal(mutations[0].variables.input.title, article.title);
   await assert.rejects(readFile(manifest), { code: "ENOENT" });
+});
+
+test("dry runs preview missing channels without mutations or deployment checks", async (t) => {
+  const { run, requests, created, logs, manifest } = await setup(t, {
+    dryRun: true,
+    existing: [{ id: "sent", channelId: "one", text: article.url, status: "sent" }],
+  });
+  const fetchBuffer = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", (url, options) => {
+    assert.equal(url, "https://api.buffer.com");
+    return fetchBuffer(url, options);
+  });
+  await run();
+  assert.deepEqual(created, []);
+  assert.ok(requests.every(({ query }) => !query.includes("mutation")));
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.deepEqual(preview, {
+    title: article.title,
+    text: `${article.title}\n\n${article.url}`,
+    channels: [{ id: "two", name: "Second channel" }],
+    mode: "shareNow",
+  });
+  await assert.rejects(readFile(manifest), { code: "ENOENT" });
+});
+
+test("dry-run does not enable publishing on ordinary builds", async (t) => {
+  const { run, requests, routes } = await setup(t, { dryRun: true, enabled: false });
+  await run();
+  assert.deepEqual(routes, []);
+  assert.deepEqual(requests, []);
 });
 
 test("checks all history pages and resumes only missing channels", async (t) => {
