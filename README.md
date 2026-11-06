@@ -215,35 +215,7 @@ Validation finishes before any API requests, but later failures can occur after 
 Inspect Buffer for delivery errors. Creation requests are not retried automatically, and exactly-once
 delivery is not guaranteed. Run publishing builds serially to avoid races.
 
-## Releases
-
-Publishing runs automatically when a version tag is pushed. Tests and formatting must pass,
-and the tag must match the version in `package.json`.
-
-Releases use npm trusted publishing for `HiroAgustin/astro-buffer` through `publish.yml`, with no
-environment or npm token required. From a clean, up-to-date `main` branch, release a fix:
-
-```sh
-npm version patch
-git push origin main --follow-tags
-```
-
-Use `npm version minor` for a feature release instead. The workflow publishes to npm with
-provenance; it does not announce anything on social networks.
-
-## Development
-
-Use Node 24 or newer. Tests exercise the compiled JavaScript that
-ships to users, not TypeScript source:
-
-```sh
-npm ci
-npm test
-npm run format:check
-```
-
-CI runs the build, tests, and formatting check on Node 24 LTS with Astro 7.
-Buffer requests are mocked; no credentials or real social posts are involved.
+For development and release instructions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 References: [Astro Integration API](https://docs.astro.build/en/reference/integrations-reference/)
 and [Buffer content items](https://developers.buffer.com/guides/content-items).
