@@ -32,6 +32,57 @@ interface BufferPost {
   status: string;
 }
 
+function parseArticles(value: unknown): Article[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Buffer manifest must be an array of articles.");
+  }
+  return value.map((entry: unknown, index) => {
+    const label = `Buffer manifest article ${index + 1}`;
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error(`${label} must be an object.`);
+    }
+    if (
+      !("filePath" in entry) ||
+      typeof entry.filePath !== "string" ||
+      !entry.filePath.trim() ||
+      entry.filePath.startsWith("/") ||
+      entry.filePath.includes("\\") ||
+      entry.filePath.split("/").some((part) => part === "." || part === "..") ||
+      /^[a-z]:/i.test(entry.filePath)
+    ) {
+      throw new Error(`${label}: filePath must be a project-relative path using forward slashes.`);
+    }
+    if (!("title" in entry) || typeof entry.title !== "string" || !entry.title.trim()) {
+      throw new Error(`${label}: title must be a non-empty string.`);
+    }
+    if (
+      !("url" in entry) ||
+      typeof entry.url !== "string" ||
+      /\s/.test(entry.url) ||
+      !URL.canParse(entry.url)
+    ) {
+      throw new Error(`${label}: url must be an absolute HTTP(S) URL without whitespace.`);
+    }
+    const url = new URL(entry.url);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) {
+      throw new Error(`${label}: url must be an HTTP(S) URL without credentials or a fragment.`);
+    }
+    if (
+      "text" in entry &&
+      entry.text !== undefined &&
+      (typeof entry.text !== "string" || !entry.text.trim())
+    ) {
+      throw new Error(`${label}: announcement text must be a non-empty string.`);
+    }
+    return {
+      filePath: entry.filePath,
+      title: entry.title,
+      url: entry.url,
+      ...("text" in entry && typeof entry.text === "string" && { text: entry.text }),
+    };
+  });
+}
+
 async function request<T>(token: string, query: string, variables: object): Promise<T> {
   const response = await fetch("https://api.buffer.com", {
     method: "POST",
@@ -96,8 +147,9 @@ export default function buffer({
         if (!enabled) return;
 
         const manifest = new URL("buffer-posts.json", dir);
-        const articles: Article[] = JSON.parse(await readFile(manifest, "utf8"));
+        const contents = await readFile(manifest, "utf8");
         await unlink(manifest);
+        const articles = parseArticles(JSON.parse(contents));
 
         const base = process.env.BUFFER_BASE_REF;
         if (!base || !/^[a-f0-9]{40}$/i.test(base) || /^0+$/.test(base)) {
@@ -125,18 +177,10 @@ export default function buffer({
         );
         const posts = articles
           .filter((article) => added.has(article.filePath))
-          .map((article) => {
-            if (
-              article.text !== undefined &&
-              (typeof article.text !== "string" || !article.text.trim())
-            ) {
-              throw new Error(`"${article.title}": announcement text must be a non-empty string.`);
-            }
-            return {
-              ...article,
-              text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
-            };
-          });
+          .map((article) => ({
+            ...article,
+            text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
+          }));
         if (!posts.length) {
           logger.info("No new blog posts to share.");
           return;
