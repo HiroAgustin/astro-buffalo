@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import timers from "node:timers/promises";
 import test from "node:test";
-import buffer from "../src/index.ts";
+import buffer from "../dist/index.js";
 
 const article = {
   filePath: "src/content/blog/new.md",
