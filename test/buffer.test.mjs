@@ -236,6 +236,8 @@ test("shares committed drafts when their YAML draft flag is cleared or removed",
     ["cleared", "---\ndraft: true\n---\nArticle\n", "---\ndraft: false\n---\nArticle\n"],
     ["removed", "---\ndraft: true\n---\nArticle\n", "---\ntitle: Published\n---\nArticle\n"],
     ["frontmatter removed", "---\ndraft: true\n---\nArticle\n", "Published article\n"],
+    ["delimiter whitespace", "--- \t\ndraft: true\n--- \t\nArticle\n", "Published\n"],
+    ["closing delimiter at EOF", "---\ndraft: true\n---", "Published\n"],
     [
       "YAML syntax and CRLF",
       '\uFEFF---\r\n"draft": true # Review first\r\n---\r\nArticle\r\n',
@@ -262,6 +264,8 @@ test("does not share drafts or mistake body text and quoted strings for draft fl
       },
     ],
     ["body text", { previousSource: "Example:\n---\ndraft: true\n---\nArticle\n" }],
+    ["indented delimiter", { previousSource: " ---\ndraft: true\n---\nArticle\n" }],
+    ["bare delimiter", { previousSource: "---" }],
     ["quoted boolean", { previousSource: '---\ndraft: "true"\n---\nArticle\n' }],
   ]) {
     await t.test(name, async (t) => {
