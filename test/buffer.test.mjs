@@ -36,7 +36,7 @@ async function setup(
     source = "New article\n",
   } = {},
 ) {
-  const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
+  const root = await mkdtemp(join(tmpdir(), "astro-buffalo-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const env = {
     BUFFER_PUBLISH: enabled ? "true" : undefined,

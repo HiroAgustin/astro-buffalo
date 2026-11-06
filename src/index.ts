@@ -150,7 +150,7 @@ export default function buffer({
   const dryRun = process.env.BUFFER_DRY_RUN === "true";
 
   return {
-    name: "astro-buffer",
+    name: "astro-buffalo",
     hooks: {
       "astro:config:setup": ({ injectRoute, command }) => {
         enabled = command === "build" && process.env.BUFFER_PUBLISH === "true";

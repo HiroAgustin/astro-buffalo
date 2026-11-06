@@ -1,12 +1,12 @@
 {
-  "name": "astro-buffer",
+  "name": "astro-buffalo",
   "version": "0.1.2",
   "description": "Share newly published Astro articles through Buffer.",
   "license": "MIT",
-  "homepage": "https://github.com/HiroAgustin/astro-buffer#readme",
+  "homepage": "https://github.com/HiroAgustin/astro-buffalo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HiroAgustin/astro-buffer.git"
+    "url": "git+https://github.com/HiroAgustin/astro-buffalo.git"
   },
   "keywords": [
     "astro-integration",

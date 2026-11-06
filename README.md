@@ -1,4 +1,4 @@
-# astro-buffer
+# astro-buffalo
 
 Share newly published Astro articles to Buffer using its experimental `createContentItem` API.
 One request per article, with a variant for each channel. No SDK, database, or browser JavaScript.
@@ -8,14 +8,14 @@ One request per article, with a variant for each channel. No SDK, database, or b
 Requires Astro 7.x and Node 24 or newer.
 
 ```sh
-npm install astro-buffer
+npm install astro-buffalo
 ```
 
 Configure your article endpoint and source directory in `astro.config.mjs`:
 
 ```js
 import { defineConfig } from "astro/config";
-import buffer from "astro-buffer";
+import buffer from "astro-buffalo";
 
 export default defineConfig({
   site: "https://example.com",
