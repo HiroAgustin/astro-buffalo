@@ -2,14 +2,40 @@ import { execFileSync } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
 import timers from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import type { AstroIntegration } from "astro";
+import type { AstroIntegration, AstroIntegrationLogger } from "astro";
+import { z } from "astro/zod";
 
-interface Article {
-  filePath: string;
-  title: string;
-  url: string;
-  text?: string;
-}
+const articlesSchema = z.array(
+  z.object(
+    {
+      filePath: z
+        .string()
+        .refine(
+          (path) =>
+            path.trim() &&
+            !path.startsWith("/") &&
+            !path.includes("\\") &&
+            !path.split("/").some((part) => part === "." || part === "..") &&
+            !/^[a-z]:/i.test(path),
+          "filePath must be a project-relative path using forward slashes.",
+        ),
+      title: z.string().refine((title) => title.trim(), "title must be a non-empty string."),
+      url: z.string().refine((value) => {
+        if (/\s/.test(value) || !URL.canParse(value)) return false;
+        const url = new URL(value);
+        return (
+          ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.hash
+        );
+      }, "url must be an absolute HTTP(S) URL without whitespace, credentials, or a fragment."),
+      text: z
+        .string({ message: "announcement text must be a non-empty string." })
+        .refine((text) => text.trim(), "announcement text must be a non-empty string.")
+        .optional(),
+    },
+    { message: "must be an object." },
+  ),
+  { message: "Buffer manifest must be an array of articles." },
+);
 
 export interface BufferOptions {
   posts: URL;
@@ -32,55 +58,41 @@ interface BufferPost {
   status: string;
 }
 
-function parseArticles(value: unknown): Article[] {
-  if (!Array.isArray(value)) {
-    throw new Error("Buffer manifest must be an array of articles.");
+interface PostHistory {
+  posts: {
+    edges: { node: BufferPost }[] | null;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
+}
+
+async function waitForDeployment(url: string, logger: AstroIntegrationLogger): Promise<void> {
+  const deadline = Date.now() + 300_000;
+  while (Date.now() < deadline) {
+    let response: Response | undefined;
+    try {
+      response = await fetch(url, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (error) {
+      if (
+        !(error instanceof TypeError) &&
+        !(error instanceof Error && error.name === "TimeoutError")
+      ) {
+        throw error;
+      }
+      logger.warn(`Cannot reach ${url}: ${error.message}. Retrying.`);
+    }
+    if (response) {
+      if (response.ok && response.url === url) return;
+      if (![404, 502, 503, 504].includes(response.status)) {
+        throw new Error(`Cannot verify ${url}: HTTP ${response.status}.`);
+      }
+    }
+    logger.info(`Waiting for ${url} to be deployed...`);
+    await timers.setTimeout(10_000);
   }
-  return value.map((entry: unknown, index) => {
-    const label = `Buffer manifest article ${index + 1}`;
-    if (typeof entry !== "object" || entry === null) {
-      throw new Error(`${label} must be an object.`);
-    }
-    if (
-      !("filePath" in entry) ||
-      typeof entry.filePath !== "string" ||
-      !entry.filePath.trim() ||
-      entry.filePath.startsWith("/") ||
-      entry.filePath.includes("\\") ||
-      entry.filePath.split("/").some((part) => part === "." || part === "..") ||
-      /^[a-z]:/i.test(entry.filePath)
-    ) {
-      throw new Error(`${label}: filePath must be a project-relative path using forward slashes.`);
-    }
-    if (!("title" in entry) || typeof entry.title !== "string" || !entry.title.trim()) {
-      throw new Error(`${label}: title must be a non-empty string.`);
-    }
-    if (
-      !("url" in entry) ||
-      typeof entry.url !== "string" ||
-      /\s/.test(entry.url) ||
-      !URL.canParse(entry.url)
-    ) {
-      throw new Error(`${label}: url must be an absolute HTTP(S) URL without whitespace.`);
-    }
-    const url = new URL(entry.url);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) {
-      throw new Error(`${label}: url must be an HTTP(S) URL without credentials or a fragment.`);
-    }
-    if (
-      "text" in entry &&
-      entry.text !== undefined &&
-      (typeof entry.text !== "string" || !entry.text.trim())
-    ) {
-      throw new Error(`${label}: announcement text must be a non-empty string.`);
-    }
-    return {
-      filePath: entry.filePath,
-      title: entry.title,
-      url: entry.url,
-      ...("text" in entry && typeof entry.text === "string" && { text: entry.text }),
-    };
-  });
+  throw new Error(`${url} is not live yet. Rerun after deployment succeeds.`);
 }
 
 async function request<T>(token: string, query: string, variables: object): Promise<T> {
@@ -149,7 +161,23 @@ export default function buffer({
         const manifest = new URL("buffer-posts.json", dir);
         const contents = await readFile(manifest, "utf8");
         await unlink(manifest);
-        const articles = parseArticles(JSON.parse(contents));
+        const result = articlesSchema.safeParse(JSON.parse(contents));
+        if (!result.success) {
+          throw new Error(
+            result.error.issues
+              .map(({ path, message }) =>
+                [
+                  typeof path[0] === "number" && `Buffer manifest article ${path[0] + 1}`,
+                  path[1] && `(${String(path[1])})`,
+                  message,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
+              )
+              .join("\n"),
+          );
+        }
+        const articles = result.data;
 
         const base = process.env.BUFFER_BASE_REF;
         if (!base || !/^[a-f0-9]{40}$/i.test(base) || /^0+$/.test(base)) {
@@ -220,14 +248,7 @@ export default function buffer({
         const existing: BufferPost[] = [];
         let after: string | null = null;
         do {
-          const {
-            posts: page,
-          }: {
-            posts: {
-              edges: { node: BufferPost }[] | null;
-              pageInfo: { hasNextPage: boolean; endCursor: string | null };
-            };
-          } = await request(
+          const { posts: page }: PostHistory = await request<PostHistory>(
             token,
             `query Posts($input: PostsInput!, $after: String) {
               posts(input: $input, first: 100, after: $after) {
@@ -289,39 +310,7 @@ export default function buffer({
             continue;
           }
 
-          let live = false;
-          const deadline = Date.now() + 300_000;
-          while (Date.now() < deadline) {
-            let response: Response | undefined;
-            try {
-              response = await fetch(article.url, {
-                method: "HEAD",
-                signal: AbortSignal.timeout(10_000),
-              });
-            } catch (error) {
-              if (
-                !(error instanceof TypeError) &&
-                !(error instanceof Error && error.name === "TimeoutError")
-              ) {
-                throw error;
-              }
-              logger.warn(`Cannot reach ${article.url}: ${error.message}. Retrying.`);
-            }
-            if (response) {
-              if (response.ok && response.url === article.url) {
-                live = true;
-                break;
-              }
-              if (![404, 502, 503, 504].includes(response.status)) {
-                throw new Error(`Cannot verify ${article.url}: HTTP ${response.status}.`);
-              }
-            }
-            logger.info(`Waiting for ${article.url} to be deployed...`);
-            await timers.setTimeout(10_000);
-          }
-          if (!live) {
-            throw new Error(`${article.url} is not live yet. Rerun after deployment succeeds.`);
-          }
+          await waitForDeployment(article.url, logger);
 
           const { createContentItem } = await request<{
             createContentItem: {
