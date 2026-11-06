@@ -22,17 +22,21 @@ async function setup(
   t,
   {
     enabled = true,
+    dryRun = false,
     existing = [],
     failChannel,
     nextPage = [],
     availableChannels = channels,
     nested = false,
+    integrationOptions = {},
+    articleData = {},
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const env = {
     BUFFER_PUBLISH: enabled ? "true" : undefined,
+    BUFFER_DRY_RUN: dryRun ? "true" : undefined,
     BUFFER_API_KEY: "test-token",
     BUFFER_ORGANIZATION_ID: "test-org",
   };
@@ -76,7 +80,7 @@ async function setup(
   await writeFile(
     manifest,
     JSON.stringify([
-      article,
+      { ...article, ...articleData },
       { ...article, filePath: "src/content/blog/old.md", url: "https://example.com/old/" },
       { ...article, filePath: "src/content/blog/renamed.md", url: "https://example.com/renamed/" },
     ]),
@@ -127,6 +131,7 @@ async function setup(
   const integration = buffer({
     posts: new URL("./posts.ts", import.meta.url),
     contentDirectory: "src/content/blog",
+    ...integrationOptions,
   });
   const routes = [];
   await integration.hooks["astro:config:setup"]({ injectRoute: (route) => routes.push(route) });
@@ -168,6 +173,36 @@ test("shares only added articles in one batch, not edits, renames, or archive en
   await assert.rejects(readFile(manifest), { code: "ENOENT" });
 });
 
+test("dry runs preview missing channels without mutations or deployment checks", async (t) => {
+  const { run, requests, created, logs, manifest } = await setup(t, {
+    dryRun: true,
+    existing: [{ id: "sent", channelId: "one", text: article.url, status: "sent" }],
+  });
+  const fetchBuffer = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", (url, options) => {
+    assert.equal(url, "https://api.buffer.com");
+    return fetchBuffer(url, options);
+  });
+  await run();
+  assert.deepEqual(created, []);
+  assert.ok(requests.every(({ query }) => !query.includes("mutation")));
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.deepEqual(preview, {
+    title: article.title,
+    text: `${article.title}\n\n${article.url}`,
+    channels: [{ id: "two", name: "Second channel" }],
+    mode: "shareNow",
+  });
+  await assert.rejects(readFile(manifest), { code: "ENOENT" });
+});
+
+test("dry-run does not enable publishing on ordinary builds", async (t) => {
+  const { run, requests, routes } = await setup(t, { dryRun: true, enabled: false });
+  await run();
+  assert.deepEqual(routes, []);
+  assert.deepEqual(requests, []);
+});
+
 test("checks all history pages and resumes only missing channels", async (t) => {
   const { run, created, requests } = await setup(t, {
     nextPage: [
@@ -180,6 +215,54 @@ test("checks all history pages and resumes only missing channels", async (t) => 
     ["two"],
   );
   assert.ok(requests.some(({ variables }) => variables.after === "next"));
+});
+
+test("channel selection limits history reads and publishing to selected accounts", async (t) => {
+  const { run, requests, created } = await setup(t, {
+    integrationOptions: { channelIds: ["two", "two"] },
+  });
+  await run();
+  assert.deepEqual(
+    created.map(({ channelId }) => channelId),
+    ["two"],
+  );
+  assert.deepEqual(
+    requests.find(({ query }) => query.includes("query Posts")).variables.input.filter.channelIds,
+    ["two"],
+  );
+});
+
+test("unknown channel selections fail before reading history or publishing", async (t) => {
+  const { run, requests, created } = await setup(t, {
+    integrationOptions: { channelIds: ["one", "missing"] },
+  });
+  await assert.rejects(run(), /Unknown Buffer channel IDs: missing/);
+  assert.equal(requests.length, 1);
+  assert.deepEqual(created, []);
+});
+
+test("empty channel selections cannot accidentally publish to every account", () => {
+  for (const channelIds of [[], [""], [" "]]) {
+    assert.throws(
+      () =>
+        buffer({
+          posts: new URL("./posts.ts", import.meta.url),
+          contentDirectory: "src/content/blog",
+          channelIds,
+        }),
+      /channelIds must contain/,
+    );
+  }
+});
+
+test("dry-run previews honor the channel selection", async (t) => {
+  const { run, logs } = await setup(t, {
+    dryRun: true,
+    integrationOptions: { channelIds: ["two"] },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.deepEqual(preview.channels, [{ id: "two", name: "Second channel" }]);
 });
 
 test("completed reruns never recreate sent or scheduled shares", async (t) => {
@@ -195,6 +278,56 @@ test("completed reruns never recreate sent or scheduled shares", async (t) => {
   assert.deepEqual(created, []);
 });
 
+test("custom announcement text replaces the title but always retains the article URL", async (t) => {
+  const { run, created, requests } = await setup(t, {
+    articleData: { text: "  A closer look at building for the web.  " },
+  });
+  await run();
+  assert.ok(
+    created.every(
+      ({ text }) => text === `A closer look at building for the web.\n\n${article.url}`,
+    ),
+  );
+  assert.equal(
+    requests.find(({ query }) => query.includes("mutation")).variables.input.title,
+    article.title,
+  );
+});
+
+test("dry-run previews use the same custom announcement text as publishing", async (t) => {
+  const { run, logs } = await setup(t, {
+    dryRun: true,
+    articleData: { text: "Custom introduction" },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.equal(preview.text, `Custom introduction\n\n${article.url}`);
+});
+
+test("changed announcement copy still deduplicates by the retained URL", async (t) => {
+  const { run, created } = await setup(t, {
+    articleData: { text: "A different introduction" },
+    existing: channels.map(({ id }) => ({
+      id: `post-${id}`,
+      channelId: id,
+      text: `${article.title}\n\n${article.url}`,
+      status: "sent",
+    })),
+  });
+  await run();
+  assert.deepEqual(created, []);
+});
+
+test("invalid custom announcement text fails before contacting Buffer", async (t) => {
+  for (const text of ["", "  ", 42, null]) {
+    await t.test(String(text), async (t) => {
+      const { run, requests } = await setup(t, { articleData: { text } });
+      await assert.rejects(run(), /announcement text must be a non-empty string/);
+      assert.deepEqual(requests, []);
+    });
+  }
+});
+
 test("reports experimental mutation failures with variant validation details", async (t) => {
   const { run, created } = await setup(t, { failChannel: "one" });
   await assert.rejects(run(), (error) => {
@@ -204,6 +337,59 @@ test("reports experimental mutation failures with variant validation details", a
     return true;
   });
   assert.equal(created.length, 2);
+});
+
+test("queue mode submits the announcement to Buffer's automatic posting schedule", async (t) => {
+  const { run, created } = await setup(t, {
+    integrationOptions: { mode: "addToQueue", channelIds: ["two"] },
+    articleData: { text: "A queued introduction" },
+  });
+  await run();
+  assert.deepEqual(created, [
+    {
+      channelId: "two",
+      text: `A queued introduction\n\n${article.url}`,
+      schedulingType: "automatic",
+      mode: "addToQueue",
+    },
+  ]);
+});
+
+test("dry-run previews report the selected queue mode", async (t) => {
+  const { run, logs, created } = await setup(t, {
+    dryRun: true,
+    integrationOptions: { mode: "addToQueue" },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.equal(preview.mode, "addToQueue");
+  assert.deepEqual(created, []);
+});
+
+test("queued announcements are not recreated on reruns", async (t) => {
+  const { run, created } = await setup(t, {
+    integrationOptions: { mode: "addToQueue" },
+    existing: channels.map(({ id }) => ({
+      id: `post-${id}`,
+      channelId: id,
+      text: article.url,
+      status: "scheduled",
+    })),
+  });
+  await run();
+  assert.deepEqual(created, []);
+});
+
+test("unsupported publishing modes fail instead of silently publishing immediately", () => {
+  assert.throws(
+    () =>
+      buffer({
+        posts: new URL("./posts.ts", import.meta.url),
+        contentDirectory: "src/content/blog",
+        mode: "customScheduled",
+      }),
+    /mode must be/,
+  );
 });
 
 test("existing failed posts require attention instead of being duplicated", async (t) => {

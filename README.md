@@ -22,6 +22,10 @@ export default defineConfig({
     buffer({
       posts: new URL("./src/buffer-posts.ts", import.meta.url),
       contentDirectory: "src/content/blog",
+      // Optional: omit to use every connected, unlocked channel.
+      channelIds: ["your_linkedin_channel_id", "your_bluesky_channel_id"],
+      // Optional: use Buffer's posting schedule instead of publishing immediately.
+      mode: "addToQueue",
     }),
   ],
 });
@@ -49,6 +53,22 @@ export const GET: APIRoute = async ({ site }) => {
 This endpoint is injected only for publishing builds and removed from the output before any API
 requests. It is not a public route during normal builds.
 
+Each article may also include an optional `text` string in the endpoint response. It replaces
+the title in the announcement, but not the content item's title. For example:
+
+```js
+{
+  filePath: post.filePath,
+  title: post.data.title,
+  url: new URL(`/${post.id}/`, site).href,
+  text: post.data.description,
+}
+```
+
+The integration always appends a blank line and the canonical article URL, preserving duplicate
+detection. Omit `text` to keep the title + URL default. Provided text must be non-empty; surrounding
+whitespace is trimmed. Dry runs show the same announcement text as publishing.
+
 ## Publishing
 
 Normal builds and development never publish. Set these environment variables for a publishing build:
@@ -56,6 +76,7 @@ Normal builds and development never publish. Set these environment variables for
 | Variable | Purpose |
 | --- | --- |
 | `BUFFER_PUBLISH=true` | Explicitly enable publishing. |
+| `BUFFER_DRY_RUN=true` | Preview announcements without creating posts (also requires `BUFFER_PUBLISH=true`). |
 | `BUFFER_API_KEY` | Buffer personal API key; keep this secret. |
 | `BUFFER_ORGANIZATION_ID` | Organization containing the channels to share to. |
 | `BUFFER_BASE_REF` | Full commit SHA before the newly added articles. |
@@ -65,8 +86,10 @@ available. Only added files between that revision and `HEAD` are shared; edits, 
 and archive entries are ignored. Directory paths are relative to the Astro project root.
 
 Each article's production URL must return successfully without a redirect. The integration waits
-about five minutes for deployment before failing. Posts use `title + URL` and `shareNow`; Buffer
-delivers them automatically. Disconnected and locked channels are reported and excluded.
+about five minutes for deployment before failing. Posts use `title + URL` unless custom text is
+provided. The default `mode: "shareNow"` publishes immediately; `mode: "addToQueue"` uses the next
+available slot in each channel's Buffer posting schedule. Both use automatic delivery.
+Disconnected and locked channels are reported and excluded.
 
 The announcement contains no media. Networks requiring media or extra metadata may reject it.
 Batch input validation is all-or-nothing. Subsequent processing errors can occur after Buffer
@@ -77,6 +100,10 @@ URLs per channel before creating anything. Existing failed posts, drafts, or app
 require attention in Buffer, not replacement posts. Keep their URL text and records intact.
 Creation requests are never automatically retried; this is not an exactly-once delivery guarantee.
 Run publishing builds serially to avoid races.
+
+Dry runs still require credentials and a base revision. They read channels and post history,
+report only missing announcements, and skip deployment checks and all Buffer mutations. Existing
+failed posts still require attention and cause the run to fail.
 
 Keep publishing separate from preview/PR builds. A production-only GitHub Actions workflow can
 invoke `BUFFER_PUBLISH=true astro build` after checking out the publishing commit with

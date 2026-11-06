@@ -8,11 +8,14 @@ interface Article {
   filePath: string;
   title: string;
   url: string;
+  text?: string;
 }
 
 export interface BufferOptions {
   posts: URL;
   contentDirectory: string;
+  channelIds?: string[];
+  mode?: "shareNow" | "addToQueue";
 }
 
 interface Channel {
@@ -60,9 +63,18 @@ async function request<T>(token: string, query: string, variables: object): Prom
 export default function buffer({
   posts: entrypoint,
   contentDirectory,
+  channelIds,
+  mode = "shareNow",
 }: BufferOptions): AstroIntegration {
+  if (mode !== "shareNow" && mode !== "addToQueue") {
+    throw new Error('mode must be "shareNow" or "addToQueue".');
+  }
+  if (channelIds && (!channelIds.length || channelIds.some((id) => !id.trim()))) {
+    throw new Error("channelIds must contain at least one non-empty Buffer channel ID.");
+  }
   let root: URL;
   const enabled = process.env.BUFFER_PUBLISH === "true";
+  const dryRun = process.env.BUFFER_DRY_RUN === "true";
 
   return {
     name: "astro-buffer",
@@ -110,7 +122,20 @@ export default function buffer({
             .split("\0")
             .filter(Boolean),
         );
-        const posts = articles.filter((article) => added.has(article.filePath));
+        const posts = articles
+          .filter((article) => added.has(article.filePath))
+          .map((article) => {
+            if (
+              article.text !== undefined &&
+              (typeof article.text !== "string" || !article.text.trim())
+            ) {
+              throw new Error(`"${article.title}": announcement text must be a non-empty string.`);
+            }
+            return {
+              ...article,
+              text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
+            };
+          });
         if (!posts.length) {
           logger.info("No new blog posts to share.");
           return;
@@ -129,7 +154,14 @@ export default function buffer({
           }`,
           { input: { organizationId } },
         );
+        if (channelIds) {
+          const unknown = channelIds.filter((id) => !channels.some((channel) => channel.id === id));
+          if (unknown.length) {
+            throw new Error(`Unknown Buffer channel IDs: ${unknown.join(", ")}.`);
+          }
+        }
         const connected = channels.filter((channel) => {
+          if (channelIds && !channelIds.includes(channel.id)) return false;
           if (channel.isDisconnected || channel.isLocked) {
             logger.warn(`Cannot publish to "${channel.name}": disconnected or locked in Buffer.`);
             return false;
@@ -200,6 +232,18 @@ export default function buffer({
           }
           if (!pending.length) continue;
 
+          if (dryRun) {
+            logger.info(
+              `Dry run: ${JSON.stringify({
+                title: article.title,
+                text: article.text,
+                channels: pending.map(({ id, name }) => ({ id, name })),
+                mode,
+              })}`,
+            );
+            continue;
+          }
+
           let live = false;
           const deadline = Date.now() + 300_000;
           while (Date.now() < deadline) {
@@ -257,9 +301,9 @@ export default function buffer({
                 title: article.title,
                 posts: pending.map(({ id }) => ({
                   channelId: id,
-                  text: `${article.title}\n\n${article.url}`,
+                  text: article.text,
                   schedulingType: "automatic",
-                  mode: "shareNow",
+                  mode,
                 })),
               },
             },
