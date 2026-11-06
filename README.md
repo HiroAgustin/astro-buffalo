@@ -6,7 +6,7 @@ each channel. No SDK, external database, or browser JavaScript.
 
 ## Setup
 
-Requires Astro 7.x and Node 22.23.4 or newer. Node 22 LTS is the tested baseline.
+Requires Astro 7.x and Node 24 or newer. Node 24 LTS is the tested baseline.
 
 Once the package is published to npm, install it in your Astro project:
 
@@ -130,7 +130,7 @@ runs with a concurrency group using `queue: max` so newer pushes do not replace 
 
 ## Development
 
-Use Node 22.23.4 or newer. Tests exercise the compiled JavaScript that
+Use Node 24 or newer. Tests exercise the compiled JavaScript that
 ships to users, not TypeScript source:
 
 ```sh
@@ -140,7 +140,7 @@ npm run build
 npm run format:check
 ```
 
-CI runs the build, tests, and formatting check on Node 22 LTS with Astro 7.
+CI runs the build, tests, and formatting check on Node 24 LTS with Astro 7.
 Buffer requests are mocked; no credentials or real social posts are involved.
 
 References: [Astro Integration API](https://docs.astro.build/en/reference/integrations-reference/)
