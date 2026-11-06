@@ -1,21 +1,17 @@
 # astro-buffer
 
-A small Astro integration that shares newly published articles to your connected Buffer channels.
-It uses Buffer's experimental `createContentItem` API: one request per article, with a variant for
-each channel. No SDK, external database, or browser JavaScript.
+Share newly published Astro articles to Buffer using its experimental `createContentItem` API.
+One request per article, with a variant for each channel. No SDK, database, or browser JavaScript.
 
 ## Setup
 
-Requires Astro 7.x and Node 24 or newer. Node 24 LTS is the tested baseline.
-
-Install it in your Astro project:
+Requires Astro 7.x and Node 24 or newer.
 
 ```sh
 npm install astro-buffer
 ```
 
-Configure Astro with an endpoint that lists your articles, and the directory containing their
-source files:
+Configure your article endpoint and source directory in `astro.config.mjs`:
 
 ```js
 import { defineConfig } from "astro/config";
@@ -54,9 +50,7 @@ export const GET: APIRoute = async ({ site }) => {
 };
 ```
 
-This endpoint is injected only for publishing builds and removed from the output before any API
-requests. It is not injected during normal builds, development, preview, or sync, even if the
-publishing flag is present for those non-build commands.
+The endpoint is injected only during publishing builds and removed before any API requests.
 
 ### Article manifest
 
@@ -69,10 +63,9 @@ The endpoint must return a JSON array with these fields on each article:
 | `url` | Yes | Absolute HTTP(S) canonical production URL, without whitespace, credentials, or a fragment. Must match the deployed URL without a redirect. |
 | `text` | No | Non-empty custom announcement text; the article URL is always appended. |
 
-An empty array is valid. Invalid entries stop the build before any Buffer requests.
-Adapt the example's collection name and URL construction to your site's routes. Only include
-articles that are public and ready to share: filter drafts and future-dated posts in your adapter.
-For example, if your collection defines `draft` and `pubDate`:
+An empty array is valid; invalid entries stop the build before any Buffer requests.
+Adapt the collection name and routes to your site. Include only public articles, filtering drafts
+and future dates if your schema defines them:
 
 ```ts
 const posts = await getCollection(
@@ -81,57 +74,38 @@ const posts = await getCollection(
 );
 ```
 
-### Publishing a committed draft
+### Article detection
 
-Markdown and MDX articles can start with YAML frontmatter containing `draft: true`. Commit the
-draft normally, keeping it out of your public routes and the article manifest. When it is ready,
-set `draft: false` or remove the field and include the article in the manifest:
+The integration compares `BUFFER_BASE_REF` with `HEAD`, sharing added articles and committed
+drafts becoming public. Ordinary edits, published-article renames, and archive entries are ignored.
+Paths are relative to the Astro project root.
 
-```yaml
----
-title: My article
-draft: false
----
-```
+For Markdown or MDX drafts, use a top-level YAML boolean `draft: true`. Keep drafts out of your
+public routes and manifest. To publish, set it to `false` or remove it and include the article in
+the manifest. Renaming a draft during publication is supported; sources still marked as drafts
+are never shared.
 
-The integration compares the source against `BUFFER_BASE_REF`. Newly added public articles and
-previously committed drafts becoming public are shared. Ordinary edits and renames of published
-articles are ignored; renaming a draft while publishing it is supported. A source that still has
-`draft: true` is never shared, even if it is accidentally included in the manifest.
-
-Draft detection uses a top-level YAML boolean `draft: true`, not a quoted string, custom field,
-or schema default. The adapter remains responsible for filtering future dates and any custom
-publication rules. Reaching a future publication date without a source change does not trigger
-an announcement. No drafts are created or synchronized in Buffer.
+Quoted strings, custom fields, and schema defaults are not draft flags. Your adapter handles
+custom publication rules and future dates; a date passing without a source change does not trigger
+an announcement. Blog drafts are not synchronized with Buffer.
 
 ### Optional settings
 
-The default is to publish immediately to every connected, unlocked channel. To select accounts
-or use their existing Buffer posting schedules, add these options to `buffer()`:
+By default, announcements publish immediately to every connected, unlocked channel.
+To select channels or use their Buffer posting schedules, add:
 
 ```js
 channelIds: ["your_linkedin_channel_id", "your_bluesky_channel_id"],
 mode: "addToQueue",
 ```
 
-An explicit channel list must be non-empty and contain known channel IDs. Omit it to use all
-connected channels. The only supported modes are `shareNow` (default) and `addToQueue`.
+`channelIds` must be non-empty and contain known IDs. Omit it to use all connected channels.
+`mode` supports `shareNow` (default) and `addToQueue`; both use automatic delivery.
+Disconnected or locked channels are reported and skipped.
 
-Each article may also include an optional `text` string in the endpoint response. It replaces
-the title in the announcement, but not the content item's title. For example:
-
-```js
-{
-  filePath: post.filePath,
-  title: post.data.title,
-  url: new URL(`/${post.id}/`, site).href,
-  text: post.data.description,
-}
-```
-
-The integration always appends a blank line and the canonical article URL, preserving duplicate
-detection. Omit `text` to keep the title + URL default. Provided text must be non-empty; surrounding
-whitespace is trimmed. Dry runs show the same announcement text as publishing.
+Announcements use `title + "\n\n" + url`. Add `text: post.data.description` to an article's manifest
+entry for custom copy; the content item's title stays unchanged. Custom text is trimmed and must
+be non-empty. The URL is always appended for duplicate detection.
 
 ## Publishing
 
@@ -145,14 +119,12 @@ Normal builds and development never publish. Set these environment variables for
 | `BUFFER_ORGANIZATION_ID` | Organization containing the channels to share to. |
 | `BUFFER_BASE_REF` | Full commit SHA before the articles were added or changed from draft to published. |
 
-Create a personal API key in Buffer's **Settings → API**, selecting only `account:read`,
-`posts:read`, and `posts:write`. The integration reads channels, checks post history for duplicates,
-and creates announcements; it does not manage account or channel settings.
+Create a personal API key in Buffer's **Settings → API** with `account:read`, `posts:read`,
+and `posts:write` permissions.
 
-Store the key in your CI secret store or an ignored local `.env` file. Load local environment
-variables before running Astro; the integration reads `process.env` and does not load `.env`
-itself. Find your organization ID with Buffer's `account { organizations { id name } }` query
-and use the ID of the organization containing your channels.
+Store the key in CI secrets or an ignored `.env` file. The integration reads `process.env`; it
+does not load `.env` itself. Find your organization ID using Buffer's
+`account { organizations { id name } }` query.
 
 ### Preview locally
 
@@ -171,33 +143,9 @@ BUFFER_PUBLISH=true BUFFER_DRY_RUN=true BUFFER_BASE_REF="$(git rev-parse HEAD^)"
   node --env-file=.env ./node_modules/astro/bin/astro.mjs build
 ```
 
-This prints the planned text, missing target channels, and mode without creating posts.
-It still reads Buffer channels and history. Nothing is announced by an ordinary `npm run build`.
-
-Run `astro build` from the exact publishing commit in a Git checkout with the base revision
-available. Added articles and draft-to-published transitions between that revision and `HEAD` are
-shared; ordinary edits, published-article renames, and archive entries are ignored. Directory paths
-are relative to the Astro project root.
-
-Each article's production URL must return successfully without a redirect. The integration waits
-about five minutes for deployment before failing. Posts use `title + URL` unless custom text is
-provided. The default `mode: "shareNow"` publishes immediately; `mode: "addToQueue"` uses the next
-available slot in each channel's Buffer posting schedule. Both use automatic delivery.
-Disconnected and locked channels are reported and excluded.
-
-The announcement contains no media. Networks requiring media or extra metadata may reject it.
-Batch input validation is all-or-nothing. Subsequent processing errors can occur after Buffer
-creates records; inspect the Buffer dashboard for delivery errors.
-
-On failure, rerun with the same base revision. All history pages are checked for matching article
-URLs per channel before creating anything. Existing failed posts, drafts, or approval requests
-require attention in Buffer, not replacement posts. Keep their URL text and records intact.
-Creation requests are never automatically retried; this is not an exactly-once delivery guarantee.
-Run publishing builds serially to avoid races.
-
-Dry runs still require credentials and a base revision. They read channels and post history,
-report only missing announcements, and skip deployment checks and all Buffer mutations. Existing
-failed posts still require attention and cause the run to fail.
+Dry runs require credentials and a base revision. They read channels and history, then print the
+planned text, missing channels, and mode. They skip deployment checks and all writes; existing
+failed posts still cause the run to fail.
 
 ### GitHub Actions
 
@@ -253,21 +201,27 @@ For a CI preview, add `BUFFER_DRY_RUN: "true"` to the final step's environment. 
 out of pull-request and preview deployment workflows. For retries, use manual dispatch with
 the original base SHA; do not replace it with the current commit.
 
+### Deployment and retries
+
+Build from the exact publishing commit with the base revision available in Git. Production URLs
+must respond successfully without redirects; the integration waits up to five minutes for deployment.
+Announcements contain no media, so networks requiring it or extra metadata may reject them.
+
+On failure, rerun with the same base SHA. Every history page is checked for matching URLs per
+channel. Existing failed posts, drafts, or approval requests need attention in Buffer rather than
+replacement posts; keep their records and URL text intact.
+
+Validation finishes before any API requests, but later failures can occur after records are created.
+Inspect Buffer for delivery errors. Creation requests are not retried automatically, and exactly-once
+delivery is not guaranteed. Run publishing builds serially to avoid races.
+
 ## Releases
 
 Publishing runs automatically when a version tag is pushed. Tests and formatting must pass,
 and the tag must match the version in `package.json`.
 
-Configure npm trusted publishing once for `astro-buffer`:
-
-- Provider: GitHub Actions
-- Organization or user: `HiroAgustin`
-- Repository: `astro-buffer`
-- Workflow filename: `publish.yml`
-- Environment: leave blank
-- Allow direct publishing with `npm publish`
-
-No npm token or GitHub secret is needed. From a clean, up-to-date `main` branch, release a fix:
+Releases use npm trusted publishing for `HiroAgustin/astro-buffer` through `publish.yml`, with no
+environment or npm token required. From a clean, up-to-date `main` branch, release a fix:
 
 ```sh
 npm version patch
@@ -285,7 +239,6 @@ ships to users, not TypeScript source:
 ```sh
 npm ci
 npm test
-npm run build
 npm run format:check
 ```
 
