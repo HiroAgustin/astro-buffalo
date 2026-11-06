@@ -28,6 +28,7 @@ async function setup(
     nextPage = [],
     availableChannels = channels,
     nested = false,
+    integrationOptions = {},
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
@@ -129,6 +130,7 @@ async function setup(
   const integration = buffer({
     posts: new URL("./posts.ts", import.meta.url),
     contentDirectory: "src/content/blog",
+    ...integrationOptions,
   });
   const routes = [];
   await integration.hooks["astro:config:setup"]({ injectRoute: (route) => routes.push(route) });
@@ -212,6 +214,54 @@ test("checks all history pages and resumes only missing channels", async (t) => 
     ["two"],
   );
   assert.ok(requests.some(({ variables }) => variables.after === "next"));
+});
+
+test("channel selection limits history reads and publishing to selected accounts", async (t) => {
+  const { run, requests, created } = await setup(t, {
+    integrationOptions: { channelIds: ["two", "two"] },
+  });
+  await run();
+  assert.deepEqual(
+    created.map(({ channelId }) => channelId),
+    ["two"],
+  );
+  assert.deepEqual(
+    requests.find(({ query }) => query.includes("query Posts")).variables.input.filter.channelIds,
+    ["two"],
+  );
+});
+
+test("unknown channel selections fail before reading history or publishing", async (t) => {
+  const { run, requests, created } = await setup(t, {
+    integrationOptions: { channelIds: ["one", "missing"] },
+  });
+  await assert.rejects(run(), /Unknown Buffer channel IDs: missing/);
+  assert.equal(requests.length, 1);
+  assert.deepEqual(created, []);
+});
+
+test("empty channel selections cannot accidentally publish to every account", () => {
+  for (const channelIds of [[], [""], [" "]]) {
+    assert.throws(
+      () =>
+        buffer({
+          posts: new URL("./posts.ts", import.meta.url),
+          contentDirectory: "src/content/blog",
+          channelIds,
+        }),
+      /channelIds must contain/,
+    );
+  }
+});
+
+test("dry-run previews honor the channel selection", async (t) => {
+  const { run, logs } = await setup(t, {
+    dryRun: true,
+    integrationOptions: { channelIds: ["two"] },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.deepEqual(preview.channels, [{ id: "two", name: "Second channel" }]);
 });
 
 test("completed reruns never recreate sent or scheduled shares", async (t) => {

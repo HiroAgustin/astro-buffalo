@@ -22,6 +22,8 @@ export default defineConfig({
     buffer({
       posts: new URL("./src/buffer-posts.ts", import.meta.url),
       contentDirectory: "src/content/blog",
+      // Optional: omit to use every connected, unlocked channel.
+      channelIds: ["your_linkedin_channel_id", "your_bluesky_channel_id"],
     }),
   ],
 });

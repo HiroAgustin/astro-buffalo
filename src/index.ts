@@ -13,6 +13,7 @@ interface Article {
 export interface BufferOptions {
   posts: URL;
   contentDirectory: string;
+  channelIds?: string[];
 }
 
 interface Channel {
@@ -60,7 +61,11 @@ async function request<T>(token: string, query: string, variables: object): Prom
 export default function buffer({
   posts: entrypoint,
   contentDirectory,
+  channelIds,
 }: BufferOptions): AstroIntegration {
+  if (channelIds && (!channelIds.length || channelIds.some((id) => !id.trim()))) {
+    throw new Error("channelIds must contain at least one non-empty Buffer channel ID.");
+  }
   let root: URL;
   const enabled = process.env.BUFFER_PUBLISH === "true";
   const dryRun = process.env.BUFFER_DRY_RUN === "true";
@@ -130,7 +135,14 @@ export default function buffer({
           }`,
           { input: { organizationId } },
         );
+        if (channelIds) {
+          const unknown = channelIds.filter((id) => !channels.some((channel) => channel.id === id));
+          if (unknown.length) {
+            throw new Error(`Unknown Buffer channel IDs: ${unknown.join(", ")}.`);
+          }
+        }
         const connected = channels.filter((channel) => {
+          if (channelIds && !channelIds.includes(channel.id)) return false;
           if (channel.isDisconnected || channel.isLocked) {
             logger.warn(`Cannot publish to "${channel.name}": disconnected or locked in Buffer.`);
             return false;
