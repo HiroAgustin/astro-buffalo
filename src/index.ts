@@ -15,6 +15,7 @@ export interface BufferOptions {
   posts: URL;
   contentDirectory: string;
   channelIds?: string[];
+  mode?: "shareNow" | "addToQueue";
 }
 
 interface Channel {
@@ -63,7 +64,11 @@ export default function buffer({
   posts: entrypoint,
   contentDirectory,
   channelIds,
+  mode = "shareNow",
 }: BufferOptions): AstroIntegration {
+  if (mode !== "shareNow" && mode !== "addToQueue") {
+    throw new Error('mode must be "shareNow" or "addToQueue".');
+  }
   if (channelIds && (!channelIds.length || channelIds.some((id) => !id.trim()))) {
     throw new Error("channelIds must contain at least one non-empty Buffer channel ID.");
   }
@@ -233,7 +238,7 @@ export default function buffer({
                 title: article.title,
                 text: article.text,
                 channels: pending.map(({ id, name }) => ({ id, name })),
-                mode: "shareNow",
+                mode,
               })}`,
             );
             continue;
@@ -298,7 +303,7 @@ export default function buffer({
                   channelId: id,
                   text: article.text,
                   schedulingType: "automatic",
-                  mode: "shareNow",
+                  mode,
                 })),
               },
             },

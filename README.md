@@ -24,6 +24,8 @@ export default defineConfig({
       contentDirectory: "src/content/blog",
       // Optional: omit to use every connected, unlocked channel.
       channelIds: ["your_linkedin_channel_id", "your_bluesky_channel_id"],
+      // Optional: use Buffer's posting schedule instead of publishing immediately.
+      mode: "addToQueue",
     }),
   ],
 });
@@ -84,8 +86,10 @@ available. Only added files between that revision and `HEAD` are shared; edits, 
 and archive entries are ignored. Directory paths are relative to the Astro project root.
 
 Each article's production URL must return successfully without a redirect. The integration waits
-about five minutes for deployment before failing. Posts use `title + URL` and `shareNow`; Buffer
-delivers them automatically. Disconnected and locked channels are reported and excluded.
+about five minutes for deployment before failing. Posts use `title + URL` unless custom text is
+provided. The default `mode: "shareNow"` publishes immediately; `mode: "addToQueue"` uses the next
+available slot in each channel's Buffer posting schedule. Both use automatic delivery.
+Disconnected and locked channels are reported and excluded.
 
 The announcement contains no media. Networks requiring media or extra metadata may reject it.
 Batch input validation is all-or-nothing. Subsequent processing errors can occur after Buffer

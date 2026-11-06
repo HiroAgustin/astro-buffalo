@@ -339,6 +339,59 @@ test("reports experimental mutation failures with variant validation details", a
   assert.equal(created.length, 2);
 });
 
+test("queue mode submits the announcement to Buffer's automatic posting schedule", async (t) => {
+  const { run, created } = await setup(t, {
+    integrationOptions: { mode: "addToQueue", channelIds: ["two"] },
+    articleData: { text: "A queued introduction" },
+  });
+  await run();
+  assert.deepEqual(created, [
+    {
+      channelId: "two",
+      text: `A queued introduction\n\n${article.url}`,
+      schedulingType: "automatic",
+      mode: "addToQueue",
+    },
+  ]);
+});
+
+test("dry-run previews report the selected queue mode", async (t) => {
+  const { run, logs, created } = await setup(t, {
+    dryRun: true,
+    integrationOptions: { mode: "addToQueue" },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.equal(preview.mode, "addToQueue");
+  assert.deepEqual(created, []);
+});
+
+test("queued announcements are not recreated on reruns", async (t) => {
+  const { run, created } = await setup(t, {
+    integrationOptions: { mode: "addToQueue" },
+    existing: channels.map(({ id }) => ({
+      id: `post-${id}`,
+      channelId: id,
+      text: article.url,
+      status: "scheduled",
+    })),
+  });
+  await run();
+  assert.deepEqual(created, []);
+});
+
+test("unsupported publishing modes fail instead of silently publishing immediately", () => {
+  assert.throws(
+    () =>
+      buffer({
+        posts: new URL("./posts.ts", import.meta.url),
+        contentDirectory: "src/content/blog",
+        mode: "customScheduled",
+      }),
+    /mode must be/,
+  );
+});
+
 test("existing failed posts require attention instead of being duplicated", async (t) => {
   const { run, created } = await setup(t, {
     existing: [{ id: "failed", channelId: "one", text: article.url, status: "error" }],
