@@ -8,6 +8,7 @@ interface Article {
   filePath: string;
   title: string;
   url: string;
+  text?: string;
 }
 
 export interface BufferOptions {
@@ -116,7 +117,20 @@ export default function buffer({
             .split("\0")
             .filter(Boolean),
         );
-        const posts = articles.filter((article) => added.has(article.filePath));
+        const posts = articles
+          .filter((article) => added.has(article.filePath))
+          .map((article) => {
+            if (
+              article.text !== undefined &&
+              (typeof article.text !== "string" || !article.text.trim())
+            ) {
+              throw new Error(`"${article.title}": announcement text must be a non-empty string.`);
+            }
+            return {
+              ...article,
+              text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
+            };
+          });
         if (!posts.length) {
           logger.info("No new blog posts to share.");
           return;
@@ -217,7 +231,7 @@ export default function buffer({
             logger.info(
               `Dry run: ${JSON.stringify({
                 title: article.title,
-                text: `${article.title}\n\n${article.url}`,
+                text: article.text,
                 channels: pending.map(({ id, name }) => ({ id, name })),
                 mode: "shareNow",
               })}`,
@@ -282,7 +296,7 @@ export default function buffer({
                 title: article.title,
                 posts: pending.map(({ id }) => ({
                   channelId: id,
-                  text: `${article.title}\n\n${article.url}`,
+                  text: article.text,
                   schedulingType: "automatic",
                   mode: "shareNow",
                 })),

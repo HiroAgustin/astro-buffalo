@@ -51,6 +51,22 @@ export const GET: APIRoute = async ({ site }) => {
 This endpoint is injected only for publishing builds and removed from the output before any API
 requests. It is not a public route during normal builds.
 
+Each article may also include an optional `text` string in the endpoint response. It replaces
+the title in the announcement, but not the content item's title. For example:
+
+```js
+{
+  filePath: post.filePath,
+  title: post.data.title,
+  url: new URL(`/${post.id}/`, site).href,
+  text: post.data.description,
+}
+```
+
+The integration always appends a blank line and the canonical article URL, preserving duplicate
+detection. Omit `text` to keep the title + URL default. Provided text must be non-empty; surrounding
+whitespace is trimmed. Dry runs show the same announcement text as publishing.
+
 ## Publishing
 
 Normal builds and development never publish. Set these environment variables for a publishing build:

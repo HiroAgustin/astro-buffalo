@@ -29,6 +29,7 @@ async function setup(
     availableChannels = channels,
     nested = false,
     integrationOptions = {},
+    articleData = {},
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "astro-buffer-"));
@@ -79,7 +80,7 @@ async function setup(
   await writeFile(
     manifest,
     JSON.stringify([
-      article,
+      { ...article, ...articleData },
       { ...article, filePath: "src/content/blog/old.md", url: "https://example.com/old/" },
       { ...article, filePath: "src/content/blog/renamed.md", url: "https://example.com/renamed/" },
     ]),
@@ -275,6 +276,56 @@ test("completed reruns never recreate sent or scheduled shares", async (t) => {
   });
   await run();
   assert.deepEqual(created, []);
+});
+
+test("custom announcement text replaces the title but always retains the article URL", async (t) => {
+  const { run, created, requests } = await setup(t, {
+    articleData: { text: "  A closer look at building for the web.  " },
+  });
+  await run();
+  assert.ok(
+    created.every(
+      ({ text }) => text === `A closer look at building for the web.\n\n${article.url}`,
+    ),
+  );
+  assert.equal(
+    requests.find(({ query }) => query.includes("mutation")).variables.input.title,
+    article.title,
+  );
+});
+
+test("dry-run previews use the same custom announcement text as publishing", async (t) => {
+  const { run, logs } = await setup(t, {
+    dryRun: true,
+    articleData: { text: "Custom introduction" },
+  });
+  await run();
+  const preview = JSON.parse(logs.find((message) => message.startsWith("Dry run: ")).slice(9));
+  assert.equal(preview.text, `Custom introduction\n\n${article.url}`);
+});
+
+test("changed announcement copy still deduplicates by the retained URL", async (t) => {
+  const { run, created } = await setup(t, {
+    articleData: { text: "A different introduction" },
+    existing: channels.map(({ id }) => ({
+      id: `post-${id}`,
+      channelId: id,
+      text: `${article.title}\n\n${article.url}`,
+      status: "sent",
+    })),
+  });
+  await run();
+  assert.deepEqual(created, []);
+});
+
+test("invalid custom announcement text fails before contacting Buffer", async (t) => {
+  for (const text of ["", "  ", 42, null]) {
+    await t.test(String(text), async (t) => {
+      const { run, requests } = await setup(t, { articleData: { text } });
+      await assert.rejects(run(), /announcement text must be a non-empty string/);
+      assert.deepEqual(requests, []);
+    });
+  }
 });
 
 test("reports experimental mutation failures with variant validation details", async (t) => {
