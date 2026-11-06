@@ -73,13 +73,14 @@ export default function buffer({
     throw new Error("channelIds must contain at least one non-empty Buffer channel ID.");
   }
   let root: URL;
-  const enabled = process.env.BUFFER_PUBLISH === "true";
+  let enabled = false;
   const dryRun = process.env.BUFFER_DRY_RUN === "true";
 
   return {
     name: "astro-buffer",
     hooks: {
-      "astro:config:setup": ({ injectRoute }) => {
+      "astro:config:setup": ({ injectRoute, command }) => {
+        enabled = command === "build" && process.env.BUFFER_PUBLISH === "true";
         if (enabled) {
           injectRoute({
             pattern: "/buffer-posts.json",

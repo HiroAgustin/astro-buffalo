@@ -6,8 +6,16 @@ each channel. No SDK, external database, or browser JavaScript.
 
 ## Setup
 
-Build the package with `npm install && npm run build`. Until it is published, install it in a
-local Astro project using `npm install /path/to/astro-buffer`.
+Requires Astro 7.4.5+ (7.x) and Node 26.13.0+ (26.x). Older versions have not been verified.
+
+Once the package is published to npm, install it in your Astro project:
+
+```sh
+npm install astro-buffer
+```
+
+Until then, run `npm ci` in this repository and install it in your Astro project with
+`npm install /path/to/astro-buffer`. The package's prepare script builds the distribution.
 
 Configure Astro with an endpoint that lists your articles, and the directory containing their
 source files:
@@ -51,7 +59,8 @@ export const GET: APIRoute = async ({ site }) => {
 ```
 
 This endpoint is injected only for publishing builds and removed from the output before any API
-requests. It is not a public route during normal builds.
+requests. It is not injected during normal builds, development, preview, or sync, even if the
+publishing flag is present for those non-build commands.
 
 Each article may also include an optional `text` string in the endpoint response. It replaces
 the title in the announcement, but not the content item's title. For example:
@@ -80,6 +89,15 @@ Normal builds and development never publish. Set these environment variables for
 | `BUFFER_API_KEY` | Buffer personal API key; keep this secret. |
 | `BUFFER_ORGANIZATION_ID` | Organization containing the channels to share to. |
 | `BUFFER_BASE_REF` | Full commit SHA before the newly added articles. |
+
+Create a personal API key in Buffer's **Settings → API**, selecting only `account:read`,
+`posts:read`, and `posts:write`. The integration reads channels, checks post history for duplicates,
+and creates announcements; it does not manage account or channel settings.
+
+Store the key in your CI secret store or an ignored local `.env` file. Load local environment
+variables before running Astro; the integration reads `process.env` and does not load `.env`
+itself. Find your organization ID with Buffer's `account { organizations { id name } }` query
+and use the ID of the organization containing your channels.
 
 Run `astro build` from the exact publishing commit in a Git checkout with the base revision
 available. Only added files between that revision and `HEAD` are shared; edits, detected renames,
