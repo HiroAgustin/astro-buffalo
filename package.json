@@ -2,6 +2,7 @@
   "name": "astro-buffer",
   "version": "0.1.0",
   "description": "Share newly published Astro articles through Buffer.",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
