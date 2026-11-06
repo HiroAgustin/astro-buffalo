@@ -109,6 +109,11 @@ be non-empty. The URL is always appended for duplicate detection.
 
 ## Publishing
 
+Your site can be hosted anywhere. GitHub Actions is optional: run the publishing build locally
+or in any CI environment with Node 24+ and Git. It needs a Git checkout containing both the
+publishing commit (`HEAD`) and `BUFFER_BASE_REF`; source archives without Git history are not enough.
+If your host cannot provide these, run publishing separately from deployment.
+
 Normal builds and development never publish. Set these environment variables for a publishing build:
 
 | Variable | Purpose |
@@ -147,7 +152,7 @@ Dry runs require credentials and a base revision. They read channels and history
 planned text, missing channels, and mode. They skip deployment checks and all writes; existing
 failed posts still cause the run to fail.
 
-### GitHub Actions
+### GitHub Actions example
 
 After installing the package and committing your lockfile, save this as
 `.github/workflows/buffer.yml`. Configure a `BUFFER_API_KEY` repository secret and a
