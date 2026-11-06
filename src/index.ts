@@ -67,10 +67,11 @@ interface PostHistory {
 }
 
 function isDraft(source: string): boolean {
-  if (!/^\uFEFF?---[ \t]*\r?\n/.test(source)) return false;
-  const frontmatter = source.match(/^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*\r?$/m);
-  if (!frontmatter) throw new Error("Missing closing YAML frontmatter delimiter.");
-  const data: unknown = parse(frontmatter[1]);
+  const lines = (source.startsWith("\uFEFF") ? source.slice(1) : source).split("\n");
+  if (lines.length < 2 || lines[0].trimEnd() !== "---") return false;
+  const end = lines.findIndex((line, index) => index > 0 && line.trimEnd() === "---");
+  if (end === -1) throw new Error("Missing closing YAML frontmatter delimiter.");
+  const data: unknown = parse(lines.slice(1, end).join("\n"));
   return typeof data === "object" && data !== null && "draft" in data && data.draft === true;
 }
 
