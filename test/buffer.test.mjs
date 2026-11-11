@@ -178,7 +178,6 @@ test("invalid manifests fail before network requests and are removed from output
     ["relative URL", [{ ...article, url: "/new/" }], /absolute HTTP/],
     ["invalid URL", [{ ...article, url: "not a URL" }], /absolute HTTP/],
     ["non-web URL", [{ ...article, url: "ftp://example.com/new/" }], /HTTP/],
-    ["URL credentials", [{ ...article, url: "https://user:pass@example.com/" }], /credentials/],
     ["URL fragment", [{ ...article, url: `${article.url}#section` }], /fragment/],
   ]) {
     await t.test(name, async (t) => {

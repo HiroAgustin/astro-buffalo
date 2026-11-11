@@ -62,7 +62,7 @@ The endpoint must return a JSON array with these fields on each article:
 | --- | --- | --- |
 | `filePath` | Yes | Source file path relative to the Astro project root, using forward slashes; no absolute paths or `.`/`..` segments. Must match the Git path, e.g. `src/content/blog/hello.md`. |
 | `title` | Yes | Non-empty article title, also used as the default announcement. |
-| `url` | Yes | Absolute HTTP(S) canonical production URL, without whitespace, credentials, or a fragment. Must match the deployed URL without a redirect. |
+| `url` | Yes | Absolute HTTP(S) canonical production URL, without whitespace or a fragment. Must match the deployed URL without a redirect. |
 | `text` | No | Non-empty custom announcement text; the article URL is always appended. |
 | `mode` | No | `shareNow` or `addToQueue`; overrides the integration's default for this article. |
 
