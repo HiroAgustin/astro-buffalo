@@ -66,7 +66,7 @@ The endpoint must return a JSON array with these fields on each article:
 | `text` | No | Non-empty custom announcement text; the article URL is always appended. |
 | `mode` | No | `shareNow` or `addToQueue`; overrides the integration's default for this article. |
 
-An empty array is valid; invalid entries stop the build before any Buffer requests.
+An empty array is valid; invalid entries or duplicate URLs stop the build before any Buffer requests.
 Adapt the collection name and routes to your site. Include only public articles, filtering drafts
 and future dates if your schema defines them:
 
