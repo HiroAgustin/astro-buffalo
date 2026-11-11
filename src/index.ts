@@ -25,13 +25,8 @@ const articlesSchema = z
         url: z.string().refine((value) => {
           if (/\s/.test(value) || !URL.canParse(value)) return false;
           const url = new URL(value);
-          return (
-            ["http:", "https:"].includes(url.protocol) &&
-            !url.username &&
-            !url.password &&
-            !url.hash
-          );
-        }, "url must be an absolute HTTP(S) URL without whitespace, credentials, or a fragment."),
+          return ["http:", "https:"].includes(url.protocol) && !url.hash;
+        }, "url must be an absolute HTTP(S) URL without whitespace or a fragment."),
         text: z
           .string({ message: "announcement text must be a non-empty string." })
           .refine((text) => text.trim(), "announcement text must be a non-empty string.")
