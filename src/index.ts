@@ -32,6 +32,7 @@ const articlesSchema = z.array(
         .string({ message: "announcement text must be a non-empty string." })
         .refine((text) => text.trim(), "announcement text must be a non-empty string.")
         .optional(),
+      mode: z.enum(["shareNow", "addToQueue"]).optional(),
     },
     { message: "must be an object." },
   ),
@@ -231,6 +232,7 @@ export default function buffer({
           .map((article) => ({
             ...article,
             text: `${article.text?.trim() ?? article.title}\n\n${article.url}`,
+            mode: article.mode ?? mode,
           }));
         if (!posts.length) {
           logger.info("No new blog posts to share.");
@@ -327,7 +329,7 @@ export default function buffer({
                 title: article.title,
                 text: article.text,
                 channels: pending.map(({ id, name }) => ({ id, name })),
-                mode,
+                mode: article.mode,
               })}`,
             );
             continue;
@@ -360,7 +362,7 @@ export default function buffer({
                   channelId: id,
                   text: article.text,
                   schedulingType: "automatic",
-                  mode,
+                  mode: article.mode,
                 })),
               },
             },
