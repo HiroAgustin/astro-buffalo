@@ -85,6 +85,7 @@ interface Article {
   url: string;
   text: string;
   mode: "shareNow" | "addToQueue";
+  channelIds?: string[];
 }
 
 export async function publishPosts(
@@ -108,14 +109,22 @@ export async function publishPosts(
     }`,
     { input: { organizationId } },
   );
-  if (channelIds) {
-    const unknown = channelIds.filter((id) => !channels.some((channel) => channel.id === id));
-    if (unknown.length) {
-      throw new Error(`Unknown Buffer channel IDs: ${unknown.join(", ")}.`);
-    }
+  const selections = posts.map((article) => ({
+    article,
+    ids: article.channelIds ?? channelIds,
+  }));
+  const unknown = [
+    ...new Set(
+      selections.flatMap(
+        ({ ids }) => ids?.filter((id) => !channels.some((channel) => channel.id === id)) ?? [],
+      ),
+    ),
+  ];
+  if (unknown.length) {
+    throw new Error(`Unknown Buffer channel IDs: ${unknown.join(", ")}.`);
   }
   const connected = channels.filter((channel) => {
-    if (channelIds && !channelIds.includes(channel.id)) return false;
+    if (!selections.some(({ ids }) => !ids || ids.includes(channel.id))) return false;
     if (channel.isDisconnected || channel.isLocked) {
       logger.warn(`Cannot publish to "${channel.name}": disconnected or locked in Buffer.`);
       return false;
@@ -125,6 +134,13 @@ export async function publishPosts(
   if (!connected.length) {
     throw new Error("No connected, unlocked Buffer channels found.");
   }
+  const postChannels = selections.map(({ article, ids }) => {
+    const selected = connected.filter((channel) => !ids || ids.includes(channel.id));
+    if (!selected.length) {
+      throw new Error(`No connected, unlocked Buffer channels found for "${article.title}".`);
+    }
+    return { article, channels: selected };
+  });
 
   const existing: BufferPost[] = [];
   let after: string | null = null;
@@ -156,9 +172,9 @@ export async function publishPosts(
   } while (after);
 
   const failures: Error[] = [];
-  for (const article of posts) {
+  for (const { article, channels } of postChannels) {
     const pending: Channel[] = [];
-    for (const channel of connected) {
+    for (const channel of channels) {
       const shared = existing.find(
         (post) => post.channelId === channel.id && post.text.split(/\s+/).includes(article.url),
       );

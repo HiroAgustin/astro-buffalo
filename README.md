@@ -65,6 +65,7 @@ The endpoint must return a JSON array with these fields on each article:
 | `url` | Yes | Absolute HTTP(S) canonical production URL, without whitespace or a fragment. Must match the deployed URL without a redirect. |
 | `text` | No | Non-empty custom announcement text; the article URL is always appended. |
 | `mode` | No | `shareNow` or `addToQueue`; overrides the integration's default for this article. |
+| `channelIds` | No | Non-empty array of Buffer channel IDs; overrides the integration's selection for this article. |
 
 An empty array is valid; invalid entries or duplicate URLs stop the build before any Buffer requests.
 Adapt the collection name and routes to your site. Include only public articles, filtering drafts
@@ -106,8 +107,8 @@ mode: "addToQueue",
 `mode` supports `shareNow` (default) and `addToQueue`; both use automatic delivery.
 Disconnected or locked channels are reported and skipped.
 
-For different choices per article, return `mode` in each manifest entry. Articles without a
-mode use the integration setting.
+For different choices per article, return `mode` and/or `channelIds` in each manifest entry.
+Articles without these fields use the integration settings.
 
 Announcements use `title + "\n\n" + url`. Add `text: post.data.description` to an article's manifest
 entry for custom copy; the content item's title stays unchanged. Custom text is trimmed and must
