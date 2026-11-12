@@ -31,6 +31,10 @@ const articlesSchema = z
           .refine((text) => text.trim(), "announcement text must be a non-empty string.")
           .optional(),
         mode: z.enum(["shareNow", "addToQueue"]).optional(),
+        channelIds: z
+          .array(z.string().refine((id) => id.trim(), "channel ID must be non-empty."))
+          .min(1)
+          .optional(),
       },
       { message: "must be an object." },
     ),
